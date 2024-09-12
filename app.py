@@ -14,10 +14,13 @@ def process_files(excel_path, pdf_path):
     download_folder = get_downloads_folder()
     processed_files = []  # Lista de arquivos processados
 
+    working_pdf = None  # Inicializar working_pdf aqui para garantir que ele esteja no escopo de finally
+
     try:
         # Carregar os dados do Excel
         df = pd.read_excel(excel_path, sheet_name='COMPROVANTES')
         nomes = df['NOME'].tolist()
+        fixed_info = ['PROGEN S.A.', 'PRODUTO', 'DATA DE ENVIO:', 'RELATÓRIO ANALÍTICO', 'NOME', 'LOCAL DE ENTREGA:']
         pdf_document = pdf_path
 
         working_pdf = os.path.join(download_folder, 'working_arquivo.pdf')
@@ -45,10 +48,23 @@ def process_files(excel_path, pdf_path):
                         highlight.set_colors(stroke=None, fill=(1, 1, 0))  # Preenchimento amarelo
                         highlight.update()
 
+                    # Adicionar retângulos pretos para ocultar outros blocos de texto
+                    text_blocks = page.get_text("blocks")
+                    for block in text_blocks:
+                        block_rect = fitz.Rect(block[:4])
+                        if not any(rect.intersects(block_rect) for rect in highlight_rects) and not any(info in block[4] for info in fixed_info):
+                            black_rect = page.add_rect_annot(block_rect)
+                            black_rect.set_colors(stroke=(0, 0, 0), fill=(0, 0, 0))  # Preenchimento preto
+                            black_rect.update()
+
                     paginas_marcadas.append(page_num)
 
             if paginas_marcadas:
-                output_pdf = os.path.join(download_folder, f'{nome}_processed.pdf')
+                # Verificar se o nome do PDF contém "HOME"
+                if "HOME" in pdf_document.upper():
+                    output_pdf = os.path.join(download_folder, f'{nome}_VRHO.pdf')
+                else:
+                    output_pdf = os.path.join(download_folder, f'{nome}_AL.pdf')
 
                 novo_pdf = fitz.open()
 
@@ -60,7 +76,7 @@ def process_files(excel_path, pdf_path):
                 processed_files.append(output_pdf)
             pdf.close()
 
-        # Processar os nomes no Excel
+        # Processar para cada nome
         for nome in nomes:
             marcar_e_salvar_pagina(nome)
             shutil.copy(pdf_document, working_pdf)
