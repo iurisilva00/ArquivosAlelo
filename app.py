@@ -96,13 +96,16 @@ def zip_files(files, zip_name):
     return zip_path
 
 # Interface Streamlit
-st.title("Processamento de PDF e Excel")
-st.write("Faça upload de um arquivo Excel e um arquivo PDF.")
+st.title("Processamento de PDF e Excel para Arquivos Alelo")
+st.write("""Faça upload de um arquivo Excel e um arquivo PDF. 
+         Esse produto destina-se a medição. Com essa alternativa é possível gerar 
+         todos os arquivos referentes as evidências do ticket Alelo. Seja o VR ou o VR HOME OFFICE""")
 
 excel_file = st.file_uploader("Escolha o arquivo Excel (.xlsx)", type=['xlsx'])
+st.write("O arquivo excel, precisa que a Planilha chame-se COMPROVANTE,  e que tenha colunas de NOME e MATRICULA")
 pdf_file = st.file_uploader("Escolha o arquivo PDF (.pdf)", type=['pdf'])
-
-if st.button("Processar Arquivos"):
+st.write("Esse é o arquivo ALELO.")
+if st.button("Executar"):
     if excel_file and pdf_file:
         # Salvar os arquivos carregados na pasta Downloads
         download_folder = get_downloads_folder()
