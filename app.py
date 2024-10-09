@@ -26,6 +26,7 @@ def process_files_and_zip(excel_file, pdf_file):
         # Carregar os dados do Excel
         df = pd.read_excel(excel_file, sheet_name='COMPROVANTES')
         nomes = df['NOME'].tolist()
+        matriculas = df['MATRICULA'].astype(str).tolist()  # Converter as matrículas para string
         fixed_info = ['PROGEN S.A.', 'PRODUTO', 'DATA DE ENVIO:', 'RELATÓRIO ANALÍTICO', 'NOME', 'LOCAL DE ENTREGA:']
         
         # Ler o conteúdo do arquivo PDF em BytesIO
@@ -40,8 +41,10 @@ def process_files_and_zip(excel_file, pdf_file):
         else:
             sufixo = '_AL'
 
+        selected_data = []  # Lista para armazenar as matrículas e nomes selecionados
+
         with ZipFile(zip_buffer, 'w') as zipf:
-            def marcar_e_salvar_pagina(nome):
+            def marcar_e_salvar_pagina(nome, matricula):
                 pdf = fitz.open(stream=working_pdf.getvalue())
                 paginas_marcadas = []
 
@@ -49,9 +52,10 @@ def process_files_and_zip(excel_file, pdf_file):
                     page = pdf[page_num]
                     text = page.get_text("text")
 
-                    # Verificar se o texto da página contém o nome específico
-                    if nome in text:
-                        areas = page.search_for(nome)
+                    # Verificar se o texto da página contém a matrícula específica usando igualdade
+                    pattern = rf'\b{matricula}\b'
+                    if re.search(pattern, text):
+                        areas = page.search_for(matricula)
                         highlight_rects = []
 
                         for area in areas:
@@ -67,7 +71,7 @@ def process_files_and_zip(excel_file, pdf_file):
                         text_blocks = page.get_text("blocks")
                         for block in text_blocks:
                             block_rect = fitz.Rect(block[:4])
-                            if not any(rect.intersects(block_rect) for rect in highlight_rects) and not any(info in block[4] for info in fixed_info):
+                            if not any(rect.intersects(block_rect) for rect in highlight_rects) and not any(info in block for info in fixed_info):
                                 black_rect = page.add_rect_annot(block_rect)
                                 black_rect.set_colors(stroke=(0, 0, 0), fill=(0, 0, 0))  # Preenchimento preto
                                 black_rect.update()
@@ -90,11 +94,21 @@ def process_files_and_zip(excel_file, pdf_file):
                     # Escrever no ZIP sem salvar no sistema de arquivos
                     zipf.writestr(output_pdf_name, output_pdf_bytes.getvalue())
 
+                    # Adicionar a matrícula e o nome à lista de dados selecionados
+                    selected_data.append({'MATRICULA': matricula, 'NOME': nome})
+
                 pdf.close()
 
-            # Processar para cada nome
-            for nome in nomes:
-                marcar_e_salvar_pagina(nome)
+            # Processar para cada nome e matrícula
+            for nome, matricula in zip(nomes, matriculas):
+                marcar_e_salvar_pagina(nome, matricula)
+
+            # Criar um DataFrame com os dados selecionados e salvar como Excel no ZIP
+            selected_df = pd.DataFrame(selected_data)
+            excel_buffer = BytesIO()
+            selected_df.to_excel(excel_buffer, index=False)
+            excel_buffer.seek(0)
+            zipf.writestr('dados_selecionados.xlsx', excel_buffer.getvalue())
         
     finally:
         if working_pdf:
@@ -102,10 +116,9 @@ def process_files_and_zip(excel_file, pdf_file):
 
     return zip_buffer
 
-# Função para resetar a interface e variáveis após o download
+# Função para resetar a interface e variáveis após o download ou ao clicar em limpar campos
 def reset_state():
-    st.session_state['excel_file'] = None
-    st.session_state['pdf_file'] = None
+    st.session_state.clear()
 
 # Interface Streamlit
 st.title("Processamento de PDF e Excel para Arquivos Alelo")
@@ -142,8 +155,6 @@ if st.button("Executar"):
     else:
         st.error("Por favor, faça o upload de ambos os arquivos Excel e PDF.")
 
-# Adicionar botão para limpar campos
+# Adicionar botão para limpar campos e resetar estado
 if st.button("Limpar Campos"):
-    st.session_state['excel_file'] = None
-    st.session_state['pdf_file'] = None
-    st.rerun()
+    reset_state()
