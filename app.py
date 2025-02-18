@@ -153,9 +153,9 @@ st.markdown(
 )
 
 # Interface Streamlit
-st.title("Processamento de PDF e Excel para Arquivos Alelo - Atenção aos detalhes!")
+st.title("Processamento de PDF e Excel para Arquivos Alelo")
 st.write("""
-    Faça upload de um arquivo Excel e um arquivo PDF. 
+    Faça upload de um arquivo Excel e um arquivo PDF. Atenção para esses detalhes!
     Esse produto destina-se à medição. Com essa alternativa é possível gerar 
     todos os arquivos referentes às evidências do ticket **ALELO**. Seja o **VR** ou o **VR HOME OFFICE**.
 """)
