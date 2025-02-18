@@ -1,19 +1,27 @@
+
 import fitz  # PyMuPDF
 import pandas as pd
-import shutil
 import os
 import streamlit as st
 from zipfile import ZipFile
 from io import BytesIO
 import re
+import streamlit.components.v1 as components
+
+# 🔄 Sempre reseta o estado ao entrar na página
+@st.cache_resource
+def reset_on_load():
+    st.session_state.clear()
+    return True
+
+reset_on_load()  # 🔄 Garante que a sessão sempre começa limpa
 
 def get_downloads_folder():
     return os.path.join(os.path.expanduser("~"), "Downloads")
 
 def process_files_and_zip(excel_file, pdf_file):
     download_folder = get_downloads_folder()
-    processed_files = []  
-    zip_buffer = BytesIO()  
+    zip_buffer = BytesIO()
 
     if excel_file is None or pdf_file is None:
         raise ValueError("Os arquivos Excel e PDF devem ser fornecidos.")
@@ -23,23 +31,28 @@ def process_files_and_zip(excel_file, pdf_file):
     try:
         # Ler o Excel e preparar dados
         df = pd.read_excel(excel_file, sheet_name='COMPROVANTES')
+        df.columns = df.columns.str.strip()
         nomes = df['NOME'].tolist()
         matriculas = df['MATRICULA'].astype(str).tolist()  
+
+        # 🔹 Se a linha contém essas palavras, não será pintada
         fixed_info = ['PROGEN S.A.', 'PRODUTO', 'DATA DE ENVIO:', 'RELATÓRIO ANALÍTICO', 
-                      'NOME', 'LOCAL DE ENTREGA:', "CPF", "NASCIMENTO", "MATRICULA", "VL BENEFICIO"]
-        
+                      'NOME', 'LOCAL DE ENTREGA:', "CPF", "MATRICULA", "VL BENEFICIO"]
         # Ler o arquivo PDF
         working_pdf = BytesIO(pdf_file.read())
         if not working_pdf.getvalue():
             raise ValueError("O arquivo PDF está vazio.")
 
         pdf_name = pdf_file.name
-        sufixo = '_VRHO' if re.search(r'home', pdf_name, re.IGNORECASE) else '_AL'
+        pdf_document = fitz.open(stream=working_pdf.getvalue())
 
-        selected_data = []  
+        # 🔹 Verifica se o PDF contém "HOME" → Define o sufixo do nome do arquivo
+        pdf_text = "\n".join([pdf_document[page].get_text("text") for page in range(len(pdf_document))])
+        sufixo = '_VRHO' if re.search(r'home', pdf_text, re.IGNORECASE) else '_AL'
+
+        selected_data = []
 
         with ZipFile(zip_buffer, 'w') as zipf:
-            # Função interna para processar e marcar PDFs
             def marcar_e_salvar_pagina(nome, matricula):
                 pdf = fitz.open(stream=working_pdf.getvalue())
                 paginas_marcadas = []
@@ -48,7 +61,7 @@ def process_files_and_zip(excel_file, pdf_file):
                     page = pdf[page_num]
                     text = page.get_text("text")
 
-                    # Procurar pela matrícula na página
+                    # 🔹 Marcar apenas a matrícula pesquisada
                     pattern = rf'\b{matricula}\b'
                     if re.search(pattern, text):
                         areas = page.search_for(matricula)
@@ -57,18 +70,32 @@ def process_files_and_zip(excel_file, pdf_file):
                         for area in areas:
                             highlight_rects.append(area)
 
-                        # Adicionar destaques amarelos nas áreas encontradas
+                        # 🔹 Marcar toda a linha onde a matrícula aparece
+                        text_blocks = page.get_text("blocks")
+                        for block in text_blocks:
+                            block_rect = fitz.Rect(block[:4])
+                            block_text = block[4]
+
+                            if re.search(pattern, block_text):
+                                highlight_rects.append(block_rect)
+
+                        # 🔹 Aplicar destaques
                         for rect in highlight_rects:
                             highlight = page.add_highlight_annot(rect)
                             highlight.set_colors(stroke=None, fill=(1, 1, 0))  
                             highlight.update()
 
-                        # Adicionar retângulos pretos para ocultar informações
-                        text_blocks = page.get_text("blocks")
+                        # 🔹 Ocultar informações sensíveis, **exceto** quando a linha tem "NOME", "CPF" ou "MATRICULA"
                         for block in text_blocks:
                             block_rect = fitz.Rect(block[:4])
-                            if not any(rect.intersects(block_rect) for rect in highlight_rects) and \
-                               not any(info in block[4] for info in fixed_info):  # Comparação com conteúdo do bloco
+                            block_text = block[4]
+
+                            # 🔹 Se a linha contém "NOME", "CPF" ou "MATRICULA", **não será pintada**
+                            if any(info in block_text for info in fixed_info):
+                                continue
+
+                            # 🔹 Se não for a linha da matrícula, oculta normalmente
+                            if not any(rect.intersects(block_rect) for rect in highlight_rects):
                                 black_rect = page.add_rect_annot(block_rect)
                                 black_rect.set_colors(stroke=(0, 0, 0), fill=(0, 0, 0))  
                                 black_rect.update()
@@ -77,33 +104,28 @@ def process_files_and_zip(excel_file, pdf_file):
 
                 if paginas_marcadas:
                     output_pdf_name = f'{nome}{sufixo}.pdf'
-
                     novo_pdf = fitz.open()
 
                     for page_num in paginas_marcadas:
                         novo_pdf.insert_pdf(pdf, from_page=page_num, to_page=page_num)
 
-                    # Salvar PDF com proteção
                     output_pdf_bytes = BytesIO()
                     novo_pdf.save(
                         output_pdf_bytes,
-                        encryption=fitz.PDF_ENCRYPT_AES_256,  # Criptografia AES-256
-                        permissions=fitz.PDF_PERM_PRINT,     # Permitir somente impressão
-                        owner_pw="senha_segura"             # Senha de proprietário
+                        encryption=fitz.PDF_ENCRYPT_AES_256,
+                        permissions=fitz.PDF_PERM_PRINT,
+                        owner_pw="senha_segura"
                     )
                     novo_pdf.close()
 
-                    # Adicionar ao ZIP
                     zipf.writestr(output_pdf_name, output_pdf_bytes.getvalue())
                     selected_data.append({'MATRICULA': matricula, 'NOME': nome})
 
                 pdf.close()
 
-            # Processar cada nome e matrícula
             for nome, matricula in zip(nomes, matriculas):
                 marcar_e_salvar_pagina(nome, matricula)
 
-            # Criar arquivo Excel com dados selecionados
             selected_df = pd.DataFrame(selected_data)
             excel_buffer = BytesIO()
             selected_df.to_excel(excel_buffer, index=False)
@@ -118,6 +140,17 @@ def process_files_and_zip(excel_file, pdf_file):
 
 def reset_state():
     st.session_state.clear()
+    components.html("<script>window.location.reload();</script>", height=0)  # 🔄 Recarrega a página
+
+# 🔹 Adiciona um script para limpar o estado ao sair da página
+st.markdown(
+    """<script>
+        window.addEventListener('beforeunload', function () {
+            fetch('/_stcore/clear_session_cache');
+        });
+    </script>""",
+    unsafe_allow_html=True
+)
 
 # Interface Streamlit
 st.title("Processamento de PDF e Excel para Arquivos Alelo")
@@ -152,6 +185,3 @@ if st.button("Executar"):
             st.error(f"Erro ao processar os arquivos: {str(e)}")
     else:
         st.error("Por favor, faça o upload de ambos os arquivos Excel e PDF.")
-
-if st.button("Limpar Campos"):
-    reset_state()
