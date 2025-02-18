@@ -48,8 +48,14 @@ def process_files_and_zip(excel_file, pdf_file):
 
         # 🔹 Verifica se o PDF contém "HOME" → Define o sufixo do nome do arquivo
         pdf_text = "\n".join([pdf_document[page].get_text("text") for page in range(len(pdf_document))])
-        sufixo = '_VRHO' if re.search(r'home', pdf_text, re.IGNORECASE) else '_AL'
+        sufixo =''
+        
+        if "HOME" in pdf_file.name.upper():
+            sufixo = '_VRHO'
+        else:
+            sufixo = '_AL'
 
+        st.write(f"""{sufixo}""")
         selected_data = []
 
         with ZipFile(zip_buffer, 'w') as zipf:
